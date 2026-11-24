@@ -30,5 +30,7 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: app
+      # GitHub иногда не сразу видит загруженную сборку — даём ему несколько секунд
+      - run: sleep 10
       - id: deployment
         uses: actions/deploy-pages@v5
