@@ -44,6 +44,7 @@ async function draw() {
       <div class="row"><div class="row-main"><div class="row-title">Системные уведомления</div><div class="row-sub">${{ granted: 'Включены', denied: 'Запрещены в настройках браузера', default: 'Не включены', unsupported: 'Не поддерживаются этим браузером' }[perm]}</div></div>${perm === 'default' ? '<button class="btn small" data-perm>Включить</button>' : ''}</div>
       <div class="row"><div class="row-main"><div class="row-title">Вызов словом «Помощник»</div><div class="row-sub">${wakeSupported() ? 'Скажите «Помощник» — Джарвис ответит «Да, я вас слушаю». Работает, пока приложение открыто' : 'Этот браузер не поддерживает — откройте в Safari'}</div></div><label class="switch"><input type="checkbox" data-wake ${s.wakeWord ? 'checked' : ''} ${wakeSupported() ? '' : 'disabled'}><span></span></label></div>
       <div class="row"><div class="row-main"><div class="row-title">Отвечать голосом</div><div class="row-sub">Помощник озвучивает ответы</div></div><label class="switch"><input type="checkbox" data-k="voiceReplies" ${s.voiceReplies ? 'checked' : ''}><span></span></label></div>
+      <button class="row" data-voice-check><div class="row-main"><div class="row-title">Проверка голоса</div><div class="row-sub">Микрофон, распознавание, слово «Помощник», голос ответа</div></div>${chev()}</button>
       <button class="row" data-ics-all><div class="row-main"><div class="row-title">Все дела → Календарь Apple</div><div class="row-sub">Напоминания от системы, даже при закрытом приложении</div></div>${chev()}</button>
     </div>
     ${!standalone ? '<p class="footnote">На iPhone: Safari → «Поделиться» → «На экран «Домой»». Так «Арбат» работает как приложение и может присылать уведомления (iOS 16.4+).</p>' : ''}
@@ -75,6 +76,7 @@ async function draw() {
     if (e.target.checked) { startWake(); toast('Скажите «Помощник»'); } else stopWake();
   });
   root.querySelector('[data-perm]')?.addEventListener('click', async () => { const r = await askPermission(); toast(r === 'granted' ? 'Уведомления включены' : 'Уведомления не разрешены'); draw(); });
+  root.querySelector('[data-voice-check]').onclick = voiceCheck;
   root.querySelector('[data-ics-all]').onclick = async () => {
     const list = (await allEvents()).filter(e => e.status === 'planned' && e.date >= today());
     if (!list.length) return toast('Нет предстоящих дел');
@@ -205,6 +207,66 @@ async function aiSheet() {
       if (voice !== 'system') await setSetting('ttsVoice', voice);
       draw();
       return true;
+    },
+  });
+}
+
+// Пошаговая проверка голоса на устройстве — результат можно скопировать и отправить
+async function voiceCheck() {
+  await sheet({
+    title: 'Проверка голоса',
+    body: `<div class="form">
+      <p class="caption" style="margin:0 4px">Нажмите «Начать». Когда попросит — скажите вслух: «Помощник, встреча завтра в 10».</p>
+      <div class="list" data-steps></div>
+      <button class="btn block" data-run>Начать проверку</button>
+      <button class="btn tinted block" data-copy hidden>Скопировать результат</button>
+    </div>`,
+    onMount: b => {
+      const box = b.querySelector('[data-steps]');
+      const lines = [];
+      const add = (ok, title, detail = '') => {
+        lines.push(`${ok === true ? '✅' : ok === false ? '❌' : 'ℹ️'} ${title}${detail ? ': ' + detail : ''}`);
+        box.insertAdjacentHTML('beforeend', `<div class="row"><span style="font-size:20px">${ok === true ? '✅' : ok === false ? '❌' : 'ℹ️'}</span><div class="row-main"><div class="row-title" style="white-space:normal">${esc(title)}</div>${detail ? `<div class="row-sub" style="white-space:normal">${esc(detail)}</div>` : ''}</div></div>`);
+      };
+      b.querySelector('[data-run]').onclick = async e => {
+        e.currentTarget.hidden = true;
+        unlockAudio();
+        const ua = navigator.userAgent;
+        const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+        add(null, 'Устройство', `${/iPhone|iPad/.test(ua) ? 'iPhone/iPad' : 'другое'}, ${(ua.match(/OS (\d+)_(\d+)/) || []).slice(1).join('.') ? 'iOS ' + (ua.match(/OS (\d+)_(\d+)/) || []).slice(1).join('.') : ''} · ${standalone ? 'установлено на экран «Домой»' : 'открыто в браузере'}`);
+        const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+        add(!!SR, 'Распознавание речи браузером', SR ? 'есть' : 'нет — нужен GPT или Safari');
+        try {
+          const st = await navigator.mediaDevices.getUserMedia({ audio: true });
+          st.getTracks().forEach(t => t.stop());
+          add(true, 'Доступ к микрофону', 'разрешён');
+        } catch (err) { add(false, 'Доступ к микрофону', `${err.name}: разрешите микрофон для сайта в Настройках iPhone → Safari → Микрофон`); }
+        if (SR) {
+          add(null, 'Скажите: «Помощник, встреча завтра в 10»');
+          const heard = await new Promise(res => {
+            const r = new SR(); r.lang = 'ru-RU'; r.interimResults = false; r.continuous = false;
+            let text = '';
+            const t = setTimeout(() => { try { r.stop(); } catch (x) { /* noop */ } }, 8000);
+            r.onresult = ev => { text = [...ev.results].map(x => x[0].transcript).join(' '); };
+            r.onerror = ev => { text = `ошибка: ${ev.error}`; };
+            r.onend = () => { clearTimeout(t); res(text); };
+            try { r.start(); } catch (x) { clearTimeout(t); res(`ошибка запуска: ${x.message}`); }
+          });
+          const okText = heard && !/^ошибка/.test(heard);
+          add(okText, 'Распознано', heard || 'ничего не услышано');
+          if (okText) add(/помощник|джарвис/i.test(heard), 'Слово «Помощник»', /помощник|джарвис/i.test(heard) ? 'узнаётся' : 'не узнано — попробуйте сказать чётче');
+        }
+        const ru = ('speechSynthesis' in window ? speechSynthesis.getVoices() : []).filter(v => /^ru/i.test(v.lang));
+        add(ru.length > 0, 'Русские голоса', ru.map(v => v.name).join(', ') || 'нет');
+        add(null, 'Голос ответа', systemVoiceName());
+        const s = await settings();
+        add(null, 'Режим GPT', s.aiProvider === 'openai' && s.aiKey ? `включён (${s.aiModel || 'модель выберется'})` : 'выключен');
+        await Promise.race([new Promise(res => speak('Проверка завершена. Джарвис на связи.', { onEnd: res })), new Promise(res => setTimeout(res, 7000))]);
+        add(null, 'Прозвучала фраза «Проверка завершена»?', 'если нет — проверьте громкость и бесшумный режим');
+        const copy = b.querySelector('[data-copy]');
+        copy.hidden = false;
+        copy.onclick = async () => { await navigator.clipboard.writeText(lines.join('\n')); toast('Скопировано — вставьте в сообщение'); };
+      };
     },
   });
 }
