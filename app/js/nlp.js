@@ -126,8 +126,8 @@ export function parseTime(t, now = new Date()) {
     return { start: hm(h % 24, 30), match: m[0].trim() };
   }
   if ((m = t.match(/ (?:в|к|на|около|после) (\d{1,2})[:.](\d{2}) ?(утра|дня|вечера|ночи)?/)) || (m = t.match(/ (\d{1,2}):(\d{2}) ?(утра|дня|вечера|ночи)?/))) {
-    const h = adjustHour(Number(m[1]), m[3], false);
-    if (h < 24 && Number(m[2]) < 60) return { start: hm(h, Number(m[2])), match: m[0].trim() };
+    const h = adjustHour(Number(m[1]), m[3], !m[3] && Number(m[1]) >= 1 && Number(m[1]) <= 7 && !/^0?0$/.test(m[1]));
+    if (h < 24 && Number(m[2]) < 60) return { start: hm(h, Number(m[2])), match: m[0].trim(), explicitPart: !!m[3] };
   }
   if ((m = t.match(/ на (\d{1,2}) ?(утра|дня|вечера|ночи)?(?= )(?! ?(час|мин|чел|этаж|комнат|кв|м2|м²|соток|дн|недел|числ|январ|феврал|март|апрел|ма[яй]|июн|июл|август|сентябр|октябр|ноябр|декабр))/))) {
     const raw = Number(m[1]);
@@ -159,11 +159,12 @@ export function parseDuration(t) {
 
 // ── Тип, приоритет, детали ──
 export function detectType(t) {
+  if (/^ (подготовить|отправить|забрать|подписать|распечатать|сделать|купить|написать|проверить|заказать|оплатить)/.test(t)) return 'task';
   if (/ (показ|просмотр|показать|покажу|смотреть квартир|посмотреть квартир)/.test(t)) return 'showing';
   if (/ (прин(ять|яти[ея]|имаю) объект|при[её]м объекта|прием объекта|принятие|нов(ый|ого) объект|взять объект|взять на продажу|эксклюзив|договор на (объект|продаж))/.test(t)) return 'intake';
   if (/ (переговор|торг|сделк|задаток|аванс|обсудить цен|обсуждение цен)/.test(t)) return 'negotiation';
   if (/ (позвонить|перезвонить|звонок|созвон|набрать|позвоню|прозвон)/.test(t)) return 'call';
-  if (/ (встреч|встретиться|увидеться|подъехать к клиент)/.test(t)) return 'meeting';
+  if (/ (встреч|встретиться|увидеться|подъехать к клиент|собрани|совещани|планерк|планёрк)/.test(t)) return 'meeting';
   return 'task';
 }
 export function detectPriority(t) {
@@ -194,18 +195,64 @@ export function makeTitle(original, removeParts) {
   let prev;
   do { prev = s; s = s.replace(FILLER, ''); } while (s !== prev);
   s = s.replace(/\s+(сегодня|завтра|послезавтра)$/i, '').trim();
+  s = s.replace(/^(?:и|плюс|а)\s+/i, '').replace(/\s+(?:и|плюс|а)$/i, '');
+  s = s.replace(/^встречу(?=\s|$)/i, 'Встреча').replace(/^(?:назначь|назначить|поставь)\s+/i, '');
+  s = s.replace(/(^|\s)(на|ул\.?|улица)\s+([а-яё])([а-яё]{2,})(?=\s+\d|\s*$|\s+(?:с|со|в|к)\s)/g, (all, sp, pre, a, rest) =>
+    /^(сегодн|завтр|послезавтр|недел|утр|вечер|обед|час|минут)/.test(a + rest) ? all : `${sp}${pre} ${a.toUpperCase()}${rest}`);
   return s ? s[0].toUpperCase() + s.slice(1) : '';
 }
 const escapeRe = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-// Разбиение длинной речи на отдельные дела
+// Разбиение длинной речи на отдельные дела.
+// iPhone распознаёт речь без запятых, поэтому делим по словам-видам дел
+// («встреча», «показ», «собрание», «позвонить»…), если перед ними стоит связка
+// («и», «плюс», «потом») или время («в 5 показ», «08:00 позвонить»).
+const KW_SRC = '(?:встреч[а-яё]*|собрани[а-яё]*|совещани[а-яё]*|планерк[а-яё]*|планёрк[а-яё]*|показ[а-яё]*|просмотр[а-яё]*|переговор[а-яё]*|звонок|звонк[а-яё]*|позвонить|перезвонить|созвон[а-яё]*|набрать|при[её]м объекта|принять (?:новый )?объект[а-яё]*|принятие объекта|задач[а-яё]*|подготовить|отправить|забрать|подписать|сделк[а-яё]*)';
+const CONNECT_END = /(?:^|\s)(?:и|плюс|а|потом|затем|также|ещё|еще|после этого|а также)\s*$|[,.;]\s*$/i;
+const TIME_END = /(?:(?:^|\s)(?:в|на|к|с|около))?\s*\d{1,2}(?:[:.]\d{2})?(?:\s(?:утра|дня|вечера|ночи|часов|часа|час))?\s*$/i;
+const HAS_TIME = /(?:^|\s)(?:(?:в|на|к|с|около)\s)?\d{1,2}[:.]\d{2}|(?:^|\s)(?:в|на|к|около)\s\d{1,2}(?=\s|$)/i;
+
+function splitByKeywords(text) {
+  const kw = new RegExp(`(?:^|[\\s,.;])(${KW_SRC})(?=[\\s,.;!?]|$)`, 'gi');
+  const hits = [];
+  let m;
+  while ((m = kw.exec(text))) hits.push(m.index + m[0].indexOf(m[1]));
+  if (hits.length < 2) return [text];
+  const cuts = [];
+  for (let i = 1; i < hits.length; i++) {
+    const prevStart = cuts.length ? cuts[cuts.length - 1] : 0;
+    const gap = text.slice(prevStart, hits[i]);
+    const tEnd = gap.match(TIME_END);
+    if (tEnd && /\d/.test(tEnd[0])) {
+      const before = gap.slice(0, gap.length - tEnd[0].length);
+      const nextEnd = i + 1 < hits.length ? hits[i + 1] : text.length;
+      const after = text.slice(hits[i], nextEnd);
+      // время перед словом относится к следующему делу, если у предыдущего уже есть своё время
+      // или у следующего дела другого времени нет
+      if (HAS_TIME.test(before) || !HAS_TIME.test(after) || CONNECT_END.test(before)) {
+        cuts.push(prevStart + before.length);
+        continue;
+      }
+      cuts.push(hits[i]);
+      continue;
+    }
+    const cm = gap.match(CONNECT_END);
+    if (cm) cuts.push(prevStart + gap.length - cm[0].length);
+  }
+  const parts = [];
+  let last = 0;
+  for (const c of cuts) { parts.push(text.slice(last, c)); last = c; }
+  parts.push(text.slice(last));
+  return parts;
+}
+
 export function splitClauses(text) {
-  const parts = text
+  const parts = numify(text)
     .replace(/\s+(потом|затем|после этого|а также|а еще|а ещё|и еще|и ещё|также)\s+/gi, '. ')
-    .replace(/\s+и\s+(?=(встреча|встречу|показ|просмотр|звонок|созвон|переговоры|приём|прием|позвонить)\s)/gi, '. ')
     .split(/(?<=[.!?;])\s+|\n+/)
-    .flatMap(p => p.split(/,\s+(?=(?:в|во|к|с|на|потом|затем|еще|ещё|и|а|позвонить|встреча|встречу|показ|просмотр|звонок|созвон|переговоры|задача|принять|прием|приём|забрать|подготовить|отправить|сегодня|завтра|послезавтра)\s)/i))
-    .map(s => s.replace(/^[.,;!?\s]+|[.,;!?\s]+$/g, '').trim())
+    .flatMap(p => p.split(/,\s+(?=(?:в|во|к|с|на|потом|затем|еще|ещё|и|а|сегодня|завтра|послезавтра)\s)/i))
+    .flatMap(splitByKeywords)
+    .map(s => s.replace(/^[.,;!?\s]+|[.,;!?\s]+$/g, '').replace(/^(?:и|плюс|а|потом|затем|также|ещё|еще)\s+/i, '').replace(/\s+(?:и|плюс|а)$/i, '').trim())
     .filter(s => s.length > 1);
   return parts;
 }
@@ -265,6 +312,11 @@ export function parse(text, now = new Date()) {
     const dur = parseDuration(t);
     const date = d?.date || tm?.relDate || ctxDate || null;
     if (d?.date) ctxDate = d.date;
+    if (tm?.start && !tm.explicitPart && !/утра|ночи/.test(t)) {
+      const prevSame = [...out].reverse().find(o => o.start && o.date === date);
+      const [h, mi] = tm.start.split(':').map(Number);
+      if (prevSame && h < 12 && h + 12 < 24 && `${tm.start}` < prevSame.start) tm.start = hm(h + 12, mi);
+    }
     const type = detectType(t);
     const removed = [];
     if (d) removed.push(d.match);

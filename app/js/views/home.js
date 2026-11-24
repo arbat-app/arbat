@@ -133,10 +133,13 @@ async function draw() {
   wakeUnsub?.();
   wakeUnsub = onWakeState(st => {
     pill.hidden = st === 'off';
-    pill.classList.toggle('on', st === 'listening');
-    pill.querySelector('span').textContent = st === 'listening' ? 'Слушаю слово «Помощник»' : st === 'paused' ? 'Джарвис в диалоге' : st === 'denied' ? 'Нет доступа к микрофону — нажмите, чтобы включить' : 'Включаю микрофон…';
+    pill.classList.toggle('on', st === 'listening' || st === 'capture');
+    pill.querySelector('span').textContent = {
+      listening: 'Скажите «Помощник»', capture: 'Слушаю команду…', paused: 'Джарвис занят',
+      starting: 'Коснитесь экрана, чтобы включить «Помощник»', denied: 'Нет доступа к микрофону — коснитесь, чтобы включить',
+    }[st] || '';
   });
-  pill.onclick = async () => { if (!pill.classList.contains('on') && !pill.textContent.includes('диалоге')) { const w = await import('../wake.js'); w.startWake(); } else import('../app.js').then(m => m.openVoice({ greet: true })); };
+  pill.onclick = async () => { const w = await import('../wake.js'); w.startWake(); };
   root.querySelector('[data-theme-toggle]').onclick = async () => { const { toggleTheme } = await import('../app.js'); await toggleTheme(); draw(); };
   root.querySelector('[data-q=plan]').onclick = async () => showText('Утренний план', await morningPlan());
   root.querySelector('[data-q=report]').onclick = async () => showText('Отчёт за день', await eveningReport());

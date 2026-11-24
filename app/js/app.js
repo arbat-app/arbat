@@ -6,7 +6,7 @@ import { handle, addChat, applyUndo } from './assistant.js';
 import { listen, speak, stopSpeaking } from './speech.js';
 import { debounce, esc } from './util.js';
 import { maybeRefreshToken } from './ig.js';
-import { initWake, pauseWake, resumeWake } from './wake.js';
+import { initWake, pauseWake, resumeWake, setTtsActive } from './wake.js';
 
 const ROUTES = {
   home: { title: 'Главная', icon: 'home', tab: true, load: () => import('./views/home.js') },
@@ -102,16 +102,17 @@ export async function toggleTheme() {
 }
 
 // ── Голосовой режим в стиле JARVIS ──
+let voiceCtl = null;
 export function openVoice({ autoListen = true, greet = false, command = '', byWake = false } = {}) {
-  if ($('.voice')) return;
-  pauseWake();
+  if ($('.voice')) return voiceCtl;
+  if (!byWake) pauseWake();
   const el = document.createElement('div');
   el.className = 'voice';
   el.innerHTML = `
     <div class="voice-name">J.A.R.V.I.S.</div>
     <div class="voice-state">Слушаю</div>
     <div class="orb"></div>
-    <div class="voice-text">Слушаю вас. Расскажите о планах — я разложу всё по расписанию</div>
+    <div class="voice-text">Да, я вас слушаю</div>
     <div class="voice-reply"></div>
     <div class="btn-row">
       <button class="btn gray" data-close>Закрыть</button>
@@ -124,17 +125,21 @@ export function openVoice({ autoListen = true, greet = false, command = '', byWa
   document.body.append(el);
   const state = $('.voice-state', el), text = $('.voice-text', el), reply = $('.voice-reply', el), orb = $('.orb', el);
   const main = $('[data-main]', el);
-  let session = null, lastUndo = null, mode = 'idle', idleTimer = null;
-  const close = () => { clearTimeout(idleTimer); session?.cancel(); stopSpeaking(); el.remove(); resumeWake(); };
+  let session = null, lastUndo = null, mode = 'idle', idleTimer = null, manual = !byWake;
+  const close = () => {
+    clearTimeout(idleTimer); session?.cancel(); stopSpeaking(); setTtsActive(false); el.remove(); voiceCtl = null;
+    if (manual) resumeWake();
+  };
   const setMode = m => {
     mode = m;
     orb.classList.toggle('idle', m !== 'listening');
     state.textContent = { listening: 'Слушаю', thinking: 'Анализирую', speaking: 'Отвечаю', idle: 'В режиме ожидания' }[m];
     main.textContent = m === 'listening' ? 'Готово' : 'Говорить';
     clearTimeout(idleTimer);
-    // При вызове словом «Помощник» окно закрывается само и снова ждёт слова
-    if (m === 'idle' && byWake) idleTimer = setTimeout(close, 6000);
+    // При вызове словом окно закрывается само и Джарвис снова ждёт слово «Помощник»
+    if (m === 'idle' && byWake) idleTimer = setTimeout(close, 7000);
   };
+  const say = (t, after) => { setTtsActive(true); setMode('speaking'); speak(t, { onEnd: () => { setTtsActive(false); after?.(); } }); };
   const process = async t => {
     text.textContent = t;
     setMode('thinking');
@@ -146,9 +151,11 @@ export function openVoice({ autoListen = true, greet = false, command = '', byWa
     $('[data-extra]', el).hidden = false;
     $('[data-undo]', el).hidden = !lastUndo;
     const s = await settings();
-    if (s.voiceReplies) { setMode('speaking'); speak(res.reply, { onEnd: () => mode === 'speaking' && setMode('idle') }); } else setMode('idle');
+    if (s.voiceReplies) say(res.reply, () => { if (mode === 'speaking') setMode('idle'); }); else setMode('idle');
   };
   const start = () => {
+    // ручной режим: отдельная запись по кнопке
+    if (!manual) { manual = true; pauseWake(); }
     stopSpeaking();
     reply.textContent = '';
     text.textContent = 'Говорите…';
@@ -161,18 +168,25 @@ export function openVoice({ autoListen = true, greet = false, command = '', byWa
       onEnd: () => { orb.style.transform = ''; if (mode === 'listening') setMode('idle'); session = null; },
     });
   };
-  main.onclick = () => { clearTimeout(idleTimer); if (mode === 'listening') session?.stop(); else start(); };
+  main.onclick = () => { clearTimeout(idleTimer); if (mode === 'listening' && session) session.stop(); else start(); };
   $('[data-close]', el).onclick = close;
   $('[data-undo]', el).onclick = async () => { clearTimeout(idleTimer); if (lastUndo) { await applyUndo(lastUndo); lastUndo = null; $('[data-undo]', el).hidden = true; reply.textContent = 'Отменил последние изменения.'; await addChat('ai', 'Отменил последние изменения.'); } };
   $('[data-open]', el).onclick = () => { close(); go('#/assistant'); };
-  if (command) { process(command); return; }
-  if (greet) {
-    setMode('speaking');
-    text.textContent = 'Да, я вас слушаю';
-    speak('Да, я вас слушаю.', { onEnd: () => { if (mode === 'speaking') start(); } });
-    return;
+
+  voiceCtl = {
+    setText: t => { if (t) { text.textContent = t; if (mode !== 'listening') setMode('listening'); } },
+    process: t => process(t),
+    notHeard: () => { reply.textContent = 'Не расслышал. Скажите «Помощник» ещё раз или нажмите «Говорить».'; setMode('idle'); },
+  };
+  if (byWake) {
+    if (greet) say('Да, я вас слушаю.', () => { if (mode === 'speaking') { setMode('listening'); text.textContent = 'Говорите…'; } });
+    else setMode('listening');
+    return voiceCtl;
   }
+  if (command) { process(command); return voiceCtl; }
+  if (greet) { say('Да, я вас слушаю.', () => { if (mode === 'speaking') start(); }); return voiceCtl; }
   if (autoListen) start(); else setMode('idle');
+  return voiceCtl;
 }
 document.addEventListener('click', e => { if (e.target.closest('[data-voice]')) openVoice(); });
 
@@ -230,7 +244,11 @@ async function boot() {
   tick().catch(console.error);
   setInterval(() => tick().catch(console.error), 30000);
   maybeRefreshToken().catch(() => {});
-  initWake(command => openVoice({ greet: !command, command, byWake: true })).catch(console.error);
+  initWake({
+    onWake: rest => openVoice({ byWake: true, greet: !rest }),
+    onPartial: t => voiceCtl?.setText(t),
+    onFinal: t => (t ? voiceCtl?.process(t) : voiceCtl?.notHeard()),
+  }).catch(console.error);
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     navigator.serviceWorker.register('sw.js').catch(e => console.warn('SW', e));
     navigator.serviceWorker.addEventListener('message', e => { if (e.data?.link) go(e.data.link); });

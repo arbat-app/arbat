@@ -1,5 +1,5 @@
 // Service Worker: офлайн-режим и открытие приложения по нажатию на уведомление.
-const VERSION = 'arbat-v5';
+const VERSION = 'arbat-v6';
 const CORE = [
   './', './index.html', './manifest.webmanifest', './css/app.css', './icons/icon.svg', './icons/icon-192.png', './icons/icon-180.png',
   './js/app.js', './js/db.js', './js/ui.js', './js/util.js', './js/events.js', './js/nlp.js', './js/assistant.js', './js/ai.js',

@@ -6,7 +6,7 @@ import { connect, adAccounts, fbLogin, preloadFb } from '../ig.js';
 import { pickModels, VOICES } from '../ai.js';
 import { speak, unlockAudio, systemVoiceName } from '../speech.js';
 import { applyTheme, hashPin } from '../app.js';
-import { startWake, stopWake, wakeSupported } from '../wake.js';
+import { startWake, stopWake, wakeSupported, pauseWake, resumeWake } from '../wake.js';
 import { allEvents } from '../events.js';
 import { toICS } from '../notify.js';
 import { esc, today, timeAgo } from '../util.js';
@@ -231,6 +231,7 @@ async function voiceCheck() {
       b.querySelector('[data-run]').onclick = async e => {
         e.currentTarget.hidden = true;
         unlockAudio();
+        pauseWake();
         const ua = navigator.userAgent;
         const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
         add(null, 'Устройство', `${/iPhone|iPad/.test(ua) ? 'iPhone/iPad' : 'другое'}, ${(ua.match(/OS (\d+)_(\d+)/) || []).slice(1).join('.') ? 'iOS ' + (ua.match(/OS (\d+)_(\d+)/) || []).slice(1).join('.') : ''} · ${standalone ? 'установлено на экран «Домой»' : 'открыто в браузере'}`);
@@ -263,6 +264,7 @@ async function voiceCheck() {
         add(null, 'Режим GPT', s.aiProvider === 'openai' && s.aiKey ? `включён (${s.aiModel || 'модель выберется'})` : 'выключен');
         await Promise.race([new Promise(res => speak('Проверка завершена. Джарвис на связи.', { onEnd: res })), new Promise(res => setTimeout(res, 7000))]);
         add(null, 'Прозвучала фраза «Проверка завершена»?', 'если нет — проверьте громкость и бесшумный режим');
+        resumeWake();
         const copy = b.querySelector('[data-copy]');
         copy.hidden = false;
         copy.onclick = async () => { await navigator.clipboard.writeText(lines.join('\n')); toast('Скопировано — вставьте в сообщение'); };

@@ -54,7 +54,7 @@ const DEFAULTS = {
   theme: 'system', voiceReplies: true, aiProvider: 'none', aiKey: '', aiModel: '',
   igToken: '', igApi: '', igUserId: '', igUsername: '', igTokenSavedAt: 0,
   adAccountId: '', currency: 'KZT', pinHash: '', pinSalt: '',
-  lastMorning: '', lastEvening: '',
+  lastMorning: '', lastEvening: '', wakeWord: true,
 };
 const SECRET_KEYS = ['aiKey', 'igToken', 'pinHash', 'pinSalt'];
 let cache = null;
