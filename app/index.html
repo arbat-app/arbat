@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Арбат</title>
+<meta name="description" content="Рабочее приложение риелтора: ежедневник, помощник, Krisha.kz, Instagram">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Арбат">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div id="lock" class="lock" hidden></div>
+<div class="shell">
+  <main id="view" class="view" tabindex="-1"></main>
+</div>
+<nav class="tabbar" id="nav-tab" aria-label="Разделы"></nav>
+<button class="fab-voice" data-voice aria-label="Вызвать голосового помощника">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3.5 3.5 0 0 0 3.5-3.5v-5a3.5 3.5 0 1 0-7 0v5A3.5 3.5 0 0 0 12 15Zm6-3.5a.75.75 0 0 1 1.5 0 7.5 7.5 0 0 1-6.75 7.46V21a.75.75 0 0 1-1.5 0v-2.04A7.5 7.5 0 0 1 4.5 11.5a.75.75 0 0 1 1.5 0 6 6 0 0 0 12 0Z"/></svg>
+</button>
+<div id="sheet-root"></div>
+<div id="toast-root" class="toast-root" aria-live="polite"></div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

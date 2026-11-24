@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "dark-glow",
+        "value": "*",
+        "files": [
+          "app/index.html"
+        ],
+        "createdAt": "2026-11-24T06:44:07.929Z",
+        "reason": "Claude: the only colored glow is the JARVIS voice orb on the voice overlay; the user asked for a JARVIS-style assistant"
+      }
+    ]
+  }
+}
